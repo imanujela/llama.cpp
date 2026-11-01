@@ -465,14 +465,44 @@ void dequantize_row_q4_0(const block_q4_0 * GGML_RESTRICT x, float * GGML_RESTRI
 
     for (int i = 0; i < nb; i++) {
         const float d = GGML_FP16_TO_FP32(x[i].d);
+        float * dst = y + i * qk;
 
+#if defined(__AVX2__)
+        // full block: 16 bytes = 32 nibbles
+        const __m128i packed = _mm_loadu_si128((const __m128i *)x[i].qs);
+        const __m256i lo_bytes = _mm256_cvtepu8_epi32(packed);                 // 0..7
+        const __m256i hi_bytes = _mm256_cvtepu8_epi32(_mm_srli_si128(packed, 8)); // 8..15
+
+        const __m256i mask = _mm256_set1_epi32(0x0F);
+        const __m256i bias = _mm256_set1_epi32(8);
+        const __m256 scale = _mm256_set1_ps(d);
+
+        // low nibbles of all 16 bytes -> first 16 outputs
+        __m256i nlo0 = _mm256_and_si256(lo_bytes, mask);
+        nlo0 = _mm256_sub_epi32(nlo0, bias);
+        _mm256_storeu_ps(dst + 0, _mm256_mul_ps(_mm256_cvtepi32_ps(nlo0), scale));
+
+        __m256i nlo1 = _mm256_and_si256(hi_bytes, mask);
+        nlo1 = _mm256_sub_epi32(nlo1, bias);
+        _mm256_storeu_ps(dst + 8, _mm256_mul_ps(_mm256_cvtepi32_ps(nlo1), scale));
+
+        // high nibbles of all 16 bytes -> second 16 outputs
+        __m256i nhi0 = _mm256_srli_epi32(lo_bytes, 4);
+        nhi0 = _mm256_sub_epi32(nhi0, bias);
+        _mm256_storeu_ps(dst + 16, _mm256_mul_ps(_mm256_cvtepi32_ps(nhi0), scale));
+
+        __m256i nhi1 = _mm256_srli_epi32(hi_bytes, 4);
+        nhi1 = _mm256_sub_epi32(nhi1, bias);
+        _mm256_storeu_ps(dst + 24, _mm256_mul_ps(_mm256_cvtepi32_ps(nhi1), scale));
+#else
         for (int j = 0; j < qk/2; ++j) {
             const int x0 = (x[i].qs[j] & 0x0F) - 8;
             const int x1 = (x[i].qs[j] >>   4) - 8;
 
-            y[i*qk + j + 0   ] = x0*d;
-            y[i*qk + j + qk/2] = x1*d;
+            dst[j + 0   ] = x0 * d;
+            dst[j + qk/2] = x1 * d;
         }
+#endif
     }
 }
 
