@@ -4278,7 +4278,25 @@ static void ggml_compute_forward_rms_norm_f32(
                     const int64_t i13 = i03 % ne13;
                     const float * w = (float *) ((char *) src1->data + i11*nb11 + i12*nb12 + i13*nb13);
 
-                    for (int64_t i00 = 0; i00 < ne00; i00++) {
+                    int64_t i00 = 0;
+#if defined(__AVX512F__)
+                    const __m512 scale512 = _mm512_set1_ps(scale);
+                    for (; i00 + 15 < ne00; i00 += 16) {
+                        const __m512 xv = _mm512_loadu_ps(x + i00);
+                        const __m512 wv = _mm512_loadu_ps(w + i00);
+                        const __m512 yv = _mm512_mul_ps(_mm512_mul_ps(xv, scale512), wv);
+                        _mm512_storeu_ps(y + i00, yv);
+                    }
+#elif defined(__AVX2__)
+                    const __m256 scale256 = _mm256_set1_ps(scale);
+                    for (; i00 + 7 < ne00; i00 += 8) {
+                        const __m256 xv = _mm256_loadu_ps(x + i00);
+                        const __m256 wv = _mm256_loadu_ps(w + i00);
+                        const __m256 yv = _mm256_mul_ps(_mm256_mul_ps(xv, scale256), wv);
+                        _mm256_storeu_ps(y + i00, yv);
+                    }
+#endif
+                    for (; i00 < ne00; ++i00) {
                         y[i00] = x[i00] * scale * w[i00];
                     }
                 } else {

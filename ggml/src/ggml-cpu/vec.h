@@ -1595,7 +1595,30 @@ inline static void ggml_vec_geglu_quick_bf16(const int n, ggml_bf16_t * y, const
 inline static void ggml_vec_sum_f32(const int n, float * s, const float * x) {
 #ifndef GGML_USE_ACCELERATE
     ggml_float sum = 0.0;
-    for (int i = 0; i < n; ++i) {
+    int i = 0;
+#if defined(__AVX512F__)
+    __m512d acc = _mm512_setzero_pd();
+    for (; i + 15 < n; i += 16) {
+        const __m512 v = _mm512_loadu_ps(x + i);
+        acc = _mm512_add_pd(acc, _mm512_cvtps_pd(_mm512_castps512_ps256(v)));
+        acc = _mm512_add_pd(acc, _mm512_cvtps_pd(_mm512_extractf32x8_ps(v, 1)));
+    }
+    __m256d acc256 = _mm256_add_pd(_mm512_castpd512_pd256(acc), _mm512_extractf64x4_pd(acc, 1));
+    __m128d acc128 = _mm_add_pd(_mm256_castpd256_pd128(acc256), _mm256_extractf128_pd(acc256, 1));
+    acc128 = _mm_add_pd(acc128, _mm_unpackhi_pd(acc128, acc128));
+    sum = _mm_cvtsd_f64(acc128);
+#elif defined(__AVX2__)
+    __m256d acc = _mm256_setzero_pd();
+    for (; i + 7 < n; i += 8) {
+        const __m256 v = _mm256_loadu_ps(x + i);
+        acc = _mm256_add_pd(acc, _mm256_cvtps_pd(_mm256_castps256_ps128(v)));
+        acc = _mm256_add_pd(acc, _mm256_cvtps_pd(_mm256_extractf128_ps(v, 1)));
+    }
+    __m128d lo = _mm_add_pd(_mm256_castpd256_pd128(acc), _mm256_extractf128_pd(acc, 1));
+    lo = _mm_add_pd(lo, _mm_unpackhi_pd(lo, lo));
+    sum = _mm_cvtsd_f64(lo);
+#endif
+    for (; i < n; ++i) {
         sum += (ggml_float)x[i];
     }
     *s = (float)sum;
@@ -1616,7 +1639,30 @@ inline static void ggml_vec_cumsum_f32(const int n, float * y, const float * x) 
 
 inline static void ggml_vec_sum_f32_ggf(const int n, ggml_float * s, const float * x) {
     ggml_float sum = 0.0;
-    for (int i = 0; i < n; ++i) {
+    int i = 0;
+#if defined(__AVX512F__)
+    __m512d acc = _mm512_setzero_pd();
+    for (; i + 15 < n; i += 16) {
+        const __m512 v = _mm512_loadu_ps(x + i);
+        acc = _mm512_add_pd(acc, _mm512_cvtps_pd(_mm512_castps512_ps256(v)));
+        acc = _mm512_add_pd(acc, _mm512_cvtps_pd(_mm512_extractf32x8_ps(v, 1)));
+    }
+    __m256d acc256 = _mm256_add_pd(_mm512_castpd512_pd256(acc), _mm512_extractf64x4_pd(acc, 1));
+    __m128d acc128 = _mm_add_pd(_mm256_castpd256_pd128(acc256), _mm256_extractf128_pd(acc256, 1));
+    acc128 = _mm_add_pd(acc128, _mm_unpackhi_pd(acc128, acc128));
+    sum = _mm_cvtsd_f64(acc128);
+#elif defined(__AVX2__)
+    __m256d acc = _mm256_setzero_pd();
+    for (; i + 7 < n; i += 8) {
+        const __m256 v = _mm256_loadu_ps(x + i);
+        acc = _mm256_add_pd(acc, _mm256_cvtps_pd(_mm256_castps256_ps128(v)));
+        acc = _mm256_add_pd(acc, _mm256_cvtps_pd(_mm256_extractf128_ps(v, 1)));
+    }
+    __m128d lo = _mm_add_pd(_mm256_castpd256_pd128(acc), _mm256_extractf128_pd(acc, 1));
+    lo = _mm_add_pd(lo, _mm_unpackhi_pd(lo, lo));
+    sum = _mm_cvtsd_f64(lo);
+#endif
+    for (; i < n; ++i) {
         sum += (ggml_float)x[i];
     }
     *s = sum;
